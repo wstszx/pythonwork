@@ -162,3 +162,5 @@ account_data.json
 
 # Tesseract folder - assuming it's a pre-built binary/library
 Tesseract/
+# Virtual environment
+venv/

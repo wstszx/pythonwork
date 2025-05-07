@@ -34,10 +34,11 @@ def format_dr_time(minutes):
 
 
 class AccountInfo:
-    def __init__(self, name, password="", group="默认组", races_completed=0, dr_time=0, 
+    def __init__(self, name, password="", group="默认组", races_completed=0, dr_time=0,
                  sixteen_code="", secondary_email="", account_type="游戏号",
-                 dr_level="1", coins=0, green_points=0, status="空闲中", executed_action="休息"):
+                 dr_level="1", status="空闲中", executed_action="休息", nickname=""):
         self.name = name
+        self.nickname = nickname
         self.password = password
         self.group = group
         self.races_completed = races_completed
@@ -46,14 +47,13 @@ class AccountInfo:
         self.secondary_email = secondary_email
         self.account_type = account_type
         self.dr_level = dr_level
-        self.coins = coins
-        self.green_points = green_points
         self.status = status
         self.executed_action = executed_action
 
     def to_dict(self):
         return {
             "name": self.name,
+            "nickname": self.nickname,
             "password": self.password,
             "group": self.group,
             "races_completed": self.races_completed,
@@ -62,8 +62,6 @@ class AccountInfo:
             "secondary_email": self.secondary_email,
             "account_type": self.account_type,
             "dr_level": self.dr_level,
-            "coins": self.coins,
-            "green_points": self.green_points,
             "status": self.status,
             "executed_action": self.executed_action
         }
@@ -72,6 +70,7 @@ class AccountInfo:
     def from_dict(cls, data):
         return cls(
             name=data["name"],
+            nickname=data.get("nickname", ""),
             password=data.get("password", ""),
             group=data.get("group", "默认组"),
             races_completed=data.get("races_completed", 0),
@@ -80,8 +79,6 @@ class AccountInfo:
             secondary_email=data.get("secondary_email", ""),
             account_type=data.get("account_type", "游戏号"),
             dr_level=data.get("dr_level", "1"),
-            coins=data.get("coins", 0),
-            green_points=data.get("green_points", 0),
             status=data.get("status", "空闲中"),
             executed_action=data.get("executed_action", "休息")
         )
@@ -161,8 +158,11 @@ class AccountManagerWindow(QMainWindow):
 
                     # 分割字段（支持空格和制表符）
                     parts = line.replace('\t', ' ').split()
-                    if len(parts) < 8:
-                        logger.log_signal.emit(f"第{line_num}行：字段不足，需要9个字段")
+                    # 调整字段数量检查，因为金币和绿点被移除，但昵称可能在导入时不提供
+                    # 假设基础字段（不含昵称）至少有7个 (name, pass, group, races, dr_time, 16code, email, type)
+                    # 如果导入格式包含昵称，则为8个
+                    if len(parts) < 7: # 调整为至少7个基础字段
+                        logger.log_signal.emit(f"第{line_num}行：字段不足，至少需要7个基础字段")
                         error_count += 1
                         continue
 
@@ -184,7 +184,7 @@ class AccountManagerWindow(QMainWindow):
                         sixteen_code = parts[5]
                         secondary_email = parts[6]
                         account_type = parts[7]
-                        
+                        nickname = parts[8] if len(parts) > 8 else "" # 可选的昵称
 
                         # 验证数据有效性
                         valid_types = ["游戏号", "会员号", "游玩号"]
@@ -207,7 +207,8 @@ class AccountManagerWindow(QMainWindow):
                             dr_time=dr_time,
                             sixteen_code=sixteen_code,
                             secondary_email=secondary_email,
-                            account_type=account_type
+                            account_type=account_type,
+                            nickname=nickname
                         )
                         self.main_window.accounts.append(new_account)
                         success_count += 1
@@ -232,9 +233,9 @@ class AccountManagerWindow(QMainWindow):
         )
         if dialog.exec():
             # 接收所有9个返回值
-            (name, password, group, races_completed, dr_time, sixteen_code,
+            (name, nickname, password, group, races_completed, dr_time, sixteen_code,
             secondary_email, account_type, action) = dialog.get_data()
-            
+
             if not name:
                 logger.log_signal.emit("账号名称不能为空！")
                 return
@@ -244,6 +245,7 @@ class AccountManagerWindow(QMainWindow):
             
             new_account = AccountInfo(
                 name=name,
+                nickname=nickname,
                 password=password,
                 group=group,
                 races_completed=races_completed,
@@ -251,7 +253,7 @@ class AccountManagerWindow(QMainWindow):
                 sixteen_code=sixteen_code,
                 secondary_email=secondary_email,
                 account_type=account_type,
-                executed_action=action  # 设置执行操作
+                executed_action=action
             )
             self.main_window.accounts.append(new_account)
             self.load_accounts()
@@ -270,9 +272,9 @@ class AccountManagerWindow(QMainWindow):
             )
             if dialog.exec():
                 # 接收所有9个返回值
-                (name, password, group, races_completed, dr_time, sixteen_code,
+                (name, nickname, password, group, races_completed, dr_time, sixteen_code,
                 secondary_email, account_type, action) = dialog.get_data()
-                
+
                 # 验证名称唯一性
                 if name != account.name and any(acc.name == name for acc in self.main_window.accounts):
                     logger.log_signal.emit("账号名称已存在！")
@@ -280,6 +282,7 @@ class AccountManagerWindow(QMainWindow):
                 
                 # 更新所有字段
                 account.name = name
+                account.nickname = nickname
                 account.password = password
                 account.group = group
                 account.races_completed = races_completed
@@ -287,7 +290,7 @@ class AccountManagerWindow(QMainWindow):
                 account.sixteen_code = sixteen_code
                 account.secondary_email = secondary_email
                 account.account_type = account_type
-                account.executed_action = action  # 更新执行操作
+                account.executed_action = action
                 
                 self.load_accounts()
                 self.main_window.refresh_table()
@@ -307,6 +310,7 @@ class AccountEditDialog(QDialog):
         self.setWindowTitle("编辑账号" if account else "添加账号")
 
         self.name_input = QLineEdit()
+        self.nickname_input = QLineEdit() # 新增昵称输入
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)
         self.action_input = QComboBox()
@@ -330,23 +334,22 @@ class AccountEditDialog(QDialog):
         
         # 如果编辑现有账号，填充所有字段
         if account:
+            self.name_input.setText(account.name)
+            self.nickname_input.setText(account.nickname) # 填充昵称
+            self.password_input.setText(account.password)
+            self.group_input.setCurrentText(account.group)
             self.races_input.setText(str(account.races_completed))
-            # 转换分钟数为QTime对象
             hours = account.dr_time // 60
             minutes = account.dr_time % 60
             self.dr_time_input.setTime(QTime(hours, minutes))
-
             self.sixteen_code_input.setText(account.sixteen_code)
             self.secondary_email_input.setText(account.secondary_email)
             self.account_type_input.setCurrentText(account.account_type)
-            self.action_input.setCurrentText(account.executed_action)  # 设置执行操作
-            self.name_input.setText(account.name)
-            self.password_input.setText(account.password)
             self.action_input.setCurrentText(account.executed_action)
-            self.group_input.setCurrentText(account.group)
 
         form = QFormLayout()
         form.addRow("账号名称:", self.name_input)
+        form.addRow("昵称:", self.nickname_input) # 添加昵称行
         form.addRow("密码:", self.password_input)
         form.addRow("执行操作:", self.action_input)
         form.addRow("编组:", self.group_input)
@@ -369,14 +372,15 @@ class AccountEditDialog(QDialog):
     
         return (
             self.name_input.text(),
+            self.nickname_input.text(), # 获取昵称
             self.password_input.text(),
             self.group_input.currentText(),
             int(self.races_input.text()) if self.races_input.text() else 0,
-            dr_time,  # 使用转换后的分钟数
+            dr_time,
             self.sixteen_code_input.text(),
             self.secondary_email_input.text(),
             self.account_type_input.currentText(),
-            self.action_input.currentText()  # 新增执行操作
+            self.action_input.currentText()
         )
 
 class MainWindow(QMainWindow):
@@ -415,18 +419,23 @@ class MainWindow(QMainWindow):
         # 添加这行代码隐藏垂直表头（行索引）
         self.table.verticalHeader().setVisible(False)
 
-        self.table.setColumnCount(10)
+        self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels([
-            "选择", "账号名称", "DR时间", "DR等级", "sqb场次",
-            "金币", "绿点", "状态", "执行的操作", "编组"
+            "选择", "账号名称", "昵称", "DR时间", "DR等级", "sqb场次",
+            "状态", "执行的操作", "编组"
         ])
 
         header = self.table.horizontalHeader()
         header.setMinimumSectionSize(40)
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        for col in range(1, 9):
-            header.setSectionResizeMode(col, QHeaderView.Interactive)
-        header.setSectionResizeMode(9, QHeaderView.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 选择
+        header.setSectionResizeMode(1, QHeaderView.Interactive)      # 账号名称
+        header.setSectionResizeMode(2, QHeaderView.Interactive)      # 昵称
+        header.setSectionResizeMode(3, QHeaderView.Interactive)      # DR时间
+        header.setSectionResizeMode(4, QHeaderView.Interactive)      # DR等级
+        header.setSectionResizeMode(5, QHeaderView.Interactive)      # sqb场次
+        header.setSectionResizeMode(6, QHeaderView.Interactive)      # 状态
+        header.setSectionResizeMode(7, QHeaderView.Interactive)      # 执行的操作
+        header.setSectionResizeMode(8, QHeaderView.Stretch)          # 编组
 
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection) 
 
@@ -525,21 +534,20 @@ class MainWindow(QMainWindow):
                 return item
 
             self.table.insertRow(row)
-            self.table.setItem(row, 0, create_item("", checkable=True))
-            self.table.setItem(row, 1, create_item(acc.name))
-            self.table.setItem(row, 2, create_item(format_dr_time(acc.dr_time)))
-            self.table.setItem(row, 3, create_item(acc.dr_level))
-            self.table.setItem(row, 4, create_item(acc.races_completed))
-            self.table.setItem(row, 5, create_item(acc.coins))
-            self.table.setItem(row, 6, create_item(acc.green_points))
+            self.table.setItem(row, 0, create_item("", checkable=True))    # 选择
+            self.table.setItem(row, 1, create_item(acc.name))             # 账号名称
+            self.table.setItem(row, 2, create_item(acc.nickname))         # 昵称
+            self.table.setItem(row, 3, create_item(format_dr_time(acc.dr_time))) # DR时间
+            self.table.setItem(row, 4, create_item(acc.dr_level))         # DR等级
+            self.table.setItem(row, 5, create_item(str(acc.races_completed))) # sqb场次
             
-            status_item = create_item(acc.status)
+            status_item = create_item(acc.status)                         # 状态
             status_color = Qt.green if acc.status == "空闲中" else Qt.red
             status_item.setForeground(status_color)
-            self.table.setItem(row, 7, status_item)
+            self.table.setItem(row, 6, status_item)
             
-            self.table.setItem(row, 8, create_item(acc.executed_action))
-            self.table.setItem(row, 9, create_item(acc.group))
+            self.table.setItem(row, 7, create_item(acc.executed_action))  # 执行的操作
+            self.table.setItem(row, 8, create_item(acc.group))            # 编组
 
     def get_selected_accounts(self):
         selected = []
